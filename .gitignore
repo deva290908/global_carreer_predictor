@@ -1,0 +1,34 @@
+# Virtual environments
+venv/
+.venv/
+env/
+
+# Python cache / build files
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+
+# Environment variables / secrets
+.env
+.env.*
+
+# Logs
+*.log
+
+# Editor / OS files
+.vscode/
+.idea/
+*.swp
+*~
+.DS_Store
+Thumbs.db
+
+# Trained models: large (~130 MB) and fully reproducible with `python train.py`
+models/*.pkl
+models/*.joblib
+models/model_metadata.json
+
+# Dataset: not redistributed (source licence not verified). See data/README.md
+data/*.csv
+data/*.zip

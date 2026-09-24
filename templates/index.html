@@ -1,0 +1,215 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Global Career Predictor</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+
+<body>
+
+    <!-- ===== Header ===== -->
+    <header class="header">
+        <span class="badge">Random Forest &middot; Explainable AI</span>
+        <h1>Global Career Predictor</h1>
+        <p class="tagline">AI-powered employment opportunity and salary prediction</p>
+    </header>
+
+    {% if not ready %}
+    <main class="layout single">
+        <section class="card">
+            <h2>Model not available</h2>
+            <p class="error-box">{{ setup_error }}</p>
+        </section>
+    </main>
+    {% else %}
+
+    <main class="layout">
+
+        <!-- ===== Input form ===== -->
+        <section class="card">
+            <div class="card-head">
+                <h2>Student / Graduate Profile</h2>
+                <button type="button" class="link-btn" id="load-sample">Load sample profile</button>
+            </div>
+
+            {% if errors %}
+            <ul class="error-box">
+                {% for e in errors %}<li>{{ e }}</li>{% endfor %}
+            </ul>
+            {% endif %}
+
+            <form method="POST" id="profile-form" class="form-grid">
+                {% for f in fields %}
+                <div class="field">
+                    <label for="{{ f }}">{{ labels[f] }}</label>
+                    {% if f in categorical %}
+                    <select id="{{ f }}" name="{{ f }}" required>
+                        <option value="">Select</option>
+                        {% for opt in meta.categories[f] %}
+                        <option value="{{ opt }}" {% if form.get(f) == opt %}selected{% endif %}>{{ opt }}</option>
+                        {% endfor %}
+                    </select>
+                    {% else %}
+                    {% set s = meta.numeric[f] %}
+                    <input type="number" id="{{ f }}" name="{{ f }}"
+                           min="{{ '%g' % s.min }}" max="{{ '%g' % s.max }}"
+                           step="{{ '1' if f in integer_fields else 'any' }}"
+                           placeholder="{{ '%g' % s.min }} – {{ '%g' % s.max }}"
+                           value="{{ form.get(f, '') }}" required>
+                    {% endif %}
+                </div>
+                {% endfor %}
+
+                <button type="submit" class="primary">Predict</button>
+            </form>
+        </section>
+
+
+        <!-- ===== Prediction result ===== -->
+        <section class="card result-card">
+            <h2>Prediction</h2>
+
+            {% if result %}
+
+            <div class="metrics">
+                <div class="metric {{ 'good' if result.placed else 'bad' }}">
+                    <span class="metric-label">Employment Opportunity</span>
+                    <span class="metric-value">{{ result.placement_status }}</span>
+                    <span class="metric-sub">Placement Probability: <strong>{{ result.placement_probability }}%</strong></span>
+                    <div class="bar"><div class="bar-fill" style="width: {{ result.placement_probability }}%"></div></div>
+                </div>
+
+                <div class="metric">
+                    <span class="metric-label">Expected Salary</span>
+                    {% if result.predicted_salary is not none %}
+                    <span class="metric-value">{{ currency }}{{ "{:,}".format(result.predicted_salary) }}</span>
+                    <span class="metric-sub">Random Forest Regressor estimate</span>
+                    {% else %}
+                    <span class="metric-value muted">Not provided</span>
+                    <span class="metric-sub">The model predicts <em>Not Placed</em>, so no salary estimate is shown.</span>
+                    {% endif %}
+                </div>
+            </div>
+
+            <h3>AI Profile Insights</h3>
+            <ul class="insights">
+                {% for i in result.insights %}
+                <li class="{{ i.kind }}">{{ i.text }}</li>
+                {% endfor %}
+            </ul>
+            <p class="note">Percentiles are relative to the {{ "{:,}".format(meta.n_rows) }} students in the dataset.</p>
+
+            <h3>What the model relies on most</h3>
+            <div class="factors">
+                {% for group, title in [("placement", "Placement model"), ("salary", "Salary model")] %}
+                <div>
+                    <h4>{{ title }}</h4>
+                    {% for k in result.key_factors[group] %}
+                    <div class="factor">
+                        <span>{{ k.feature }}</span>
+                        <div class="bar small"><div class="bar-fill" style="width: {{ k.importance }}%"></div></div>
+                        <span class="pct">{{ k.importance }}%</span>
+                    </div>
+                    {% endfor %}
+                </div>
+                {% endfor %}
+            </div>
+            <p class="note">Relative feature importance from the Random Forest. It shows which inputs the model uses most, not cause and effect.</p>
+
+            {% if result.what_if %}
+            <div class="panel">
+            <div class="panel-head">
+                <h3>What-if analysis</h3>
+                <span class="panel-tag">Model sensitivity</span>
+            </div>
+            <table class="whatif">
+                <thead>
+                    <tr>
+                        <th>If only this changed</th>
+                        <th>Placement probability</th>
+                        {% if result.placed %}<th>Salary estimate</th>{% endif %}
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for w in result.what_if %}
+                    <tr>
+                        <td>{{ w.change }}</td>
+                        <td>{{ w.probability }}%
+                            <span class="delta {{ 'up' if w.prob_delta > 0 else ('down' if w.prob_delta < 0 else '') }}">
+                                ({{ '%+.1f' % w.prob_delta }})
+                            </span>
+                        </td>
+                        {% if result.placed %}
+                        <td><span class="delta {{ 'up' if w.salary_delta > 0 else ('down' if w.salary_delta < 0 else '') }}">
+                            {{ '+' if w.salary_delta > 0 else ('−' if w.salary_delta < 0 else '±') }}{{ currency }}{{ "{:,}".format(w.salary_delta | abs) }}
+                        </span></td>
+                        {% endif %}
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+            <p class="note">Each row re-runs the trained model with one input changed. It describes how the model responds. It is not a guarantee of real-world outcomes.</p>
+            </div>
+            {% endif %}
+
+            <div class="panel">
+            <div class="panel-head">
+                <h3>Profile Analysed</h3>
+                <span class="panel-tag">{{ fields | length }} inputs</span>
+            </div>
+            <ul class="summary">
+                {% for f in fields %}
+                <li><span>{{ labels[f] }}</span> <strong>{{ student[f] if f in categorical else '%g' % student[f] }}</strong></li>
+                {% endfor %}
+            </ul>
+            </div>
+
+            {% else %}
+
+            <p class="placeholder">
+                Fill in the profile and press <strong>Predict</strong>
+                to see the employment opportunity and expected salary.
+            </p>
+
+            {% endif %}
+        </section>
+
+    </main>
+    {% endif %}
+
+
+    <!-- ===== Footer ===== -->
+    <footer class="footer">
+        Global Career Predictor &middot; Random Forest models trained on global placement data
+    </footer>
+
+    <script>
+        // Fills the form with the sample student used in the analysis.
+        // Values that are not valid options in this dataset are left empty.
+        const SAMPLE = {
+            cgpa: 8.2, backlogs: 0, college_tier: "Tier 1", country: "USA",
+            university_ranking_band: "Top 100", internship_count: 3,
+            aptitude_score: 78, communication_score: 82, specialization: "AI/ML",
+            industry: "Tech", internship_quality_score: 7.5
+        };
+        const btn = document.getElementById("load-sample");
+        if (btn) {
+            btn.addEventListener("click", () => {
+                for (const [name, value] of Object.entries(SAMPLE)) {
+                    const el = document.getElementById(name);
+                    if (!el) continue;
+                    if (el.tagName === "SELECT") {
+                        const ok = [...el.options].some(o => o.value === String(value));
+                        el.value = ok ? String(value) : "";
+                    } else {
+                        el.value = value;
+                    }
+                }
+            });
+        }
+    </script>
+
+</body>
+</html>
